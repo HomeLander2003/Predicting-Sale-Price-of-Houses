@@ -18,7 +18,7 @@ class EDA:
     
     def load(self):
         self.df=None
-        self.file_path=r"D:\Bilal folder\AIML\project\LR_udemy\AMES_Final_DF.csv"
+        self.file_path=r"AMES_Final_DF.csv"
         
         if os.path.isfile(self.file_path):
             
@@ -344,4 +344,5 @@ str.app()
                 
             
         
+
         
