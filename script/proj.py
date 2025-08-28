@@ -8,6 +8,7 @@ from sklearn.svm import SVR
 from sklearn.model_selection import train_test_split,GridSearchCV,cross_validate
 from sklearn.metrics import mean_absolute_error,mean_squared_error,r2_score
 from sklearn.pipeline import Pipeline
+from joblib import dump
 import streamlit as st
 import os
 import time
@@ -165,7 +166,7 @@ class EDA:
                 
                 fig1,ax1=plt.subplots(figsize=(20,15),dpi=200)
                 col1=self.df.sample(50,axis=1)
-                sns.heatmap(col1.corr(numeric_only=True),annot=False,ax=ax1,cmap="rocket")
+                sns.heatmap(col1.corr(numeric_only=True),annot=False,ax=ax1,cmap="viridis")
                 st.pyplot(fig1)
                 
                 st.subheader("Average Sale Price($) According to Yr-Sold")
@@ -221,12 +222,16 @@ class ML(EDA):
                 models={
                     "Linear Regression":LinearRegression(),
                     "ElasticNet": ElasticNet(),
-                    "SVR":SVR()
+                    "SVR":SVR(),
+                    "select":None
                 }
                 
                 
                 self.key_select=st.selectbox("Choose Model",list(models.keys()))
                 self.value_select=models[self.key_select]
+                
+                st.session_state["chosen_model"] = self.key_select
+                st.session_state["chosen_model_obj"] = self.value_select
                 
                 operation1=Pipeline([("scaler",StandardScaler()),
                                      ("model", self.value_select)])
@@ -260,30 +265,70 @@ class ML(EDA):
                         pred =operation1.predict(self.X_test)
 
                         st.subheader("Linear Regression Test Performance")
-                        st.text(f"MAE: {mean_absolute_error(self.y_test, pred)}")
-                        st.text(f"RMSE: {np.sqrt(mean_squared_error(self.y_test, pred))}")
-                        st.text(f"R²: {r2_score(self.y_test, pred)}")
+                        
+                        reg_eval=[{
+                            "MAE": mean_absolute_error(self.y_test, pred),
+                            "RMSE": np.sqrt(mean_squared_error(self.y_test, pred)),
+                            "R²": r2_score(self.y_test, pred)
+                        }]
+                        reg = pd.DataFrame(reg_eval).T
+                        reg.columns = ["Test Result"]
+                        st.dataframe(reg.style.background_gradient(cmap="Blues"))
 
                     elif self.key_select == "ElasticNet":
                         
-                        grid_model1=self
-                        operation1.fit(self.X_train, self.y_train)
-                        pred =operation1.predict(self.X_test)
+                        para1 = {
+                            "model__alpha": [0.001, 0.01, 0.1, 0.5, 0.95, 1,10],
+                            "model__l1_ratio": [0.1, 0.5, 0.7, 0.9, 0.95, 0.99, 1]
+                            }
+                        
+                        grid_model1=GridSearchCV(estimator=operation1,param_grid=para1,cv=5)
+                        
+                        grid_model1.fit(self.X_train, self.y_train)
+                        self.value_select=grid_model1.best_estimator_
+                        pred=self.value_select.predict(self.X_test)
 
                         st.subheader("ElasticNet Test Performance")
-                        st.text(f"MAE: {mean_absolute_error(self.y_test, pred)}")
-                        st.text(f"RMSE: {np.sqrt(mean_squared_error(self.y_test, pred))}")
-                        st.text(f"R²: {r2_score(self.y_test, pred)}")
+                        st.text(f"Best parameters : {grid_model1.best_params_}")
+                      
+                        elastic_eval =[{
+                        "MAE": mean_absolute_error(self.y_test, pred),
+                        "RMSE": np.sqrt(mean_squared_error(self.y_test, pred)),
+                        "R²": r2_score(self.y_test, pred)
+                    }]
+                        Elastic = pd.DataFrame(elastic_eval).T
+                        Elastic.columns = ["Test Result"]
+                        st.dataframe(Elastic.style.background_gradient(cmap="Blues"))
 
                     elif self.key_select == "SVR":
-                        operation1.fit(self.X_train, self.y_train)
-                        pred = operation1.predict(self.X_test)
+                     
+                        para2= {
+                            "model__kernel": ["linear", "rbf"],   
+                            "model__C": [0.1, 1, 10, 100],
+                            "model__epsilon": [0.001, 0.01, 0.1, 0.2],
+                            "model__gamma": ["scale", "auto"]    
+                        }
 
+                        grid_model2=GridSearchCV(estimator=operation1,param_grid=para2,cv=5)
+                        grid_model2.fit(self.X_train,self.y_train)
+                        self.value_select=grid_model2.best_estimator_
+                        pred=self.value_select.predict(self.X_test)
+                        
                         st.subheader("SVR Test Performance")
-                        st.text(f"MAE: {mean_absolute_error(self.y_test, pred)}")
-                        st.text(f"RMSE: {np.sqrt(mean_squared_error(self.y_test, pred))}")
-                        st.text(f"R²: {r2_score(self.y_test, pred)}")
-                    
+                        st.text(f"Best parameters : {grid_model2.best_params_}")
+                        
+                        svr_eval =[{
+                        "MAE": mean_absolute_error(self.y_test, pred),
+                        "RMSE": np.sqrt(mean_squared_error(self.y_test, pred)),
+                        "R²": r2_score(self.y_test, pred)
+                    }]
+                        svr = pd.DataFrame(svr_eval).T
+                        svr.columns = ["Test Result"]
+                        st.dataframe(svr.style.background_gradient(cmap="Blues"))
+                        
+                        st.warning("Validation result of SVR is on  default  parameters. This Result depend on tuned performance")
+                        
+                        return self.key_select
             
             except Exception as e:
                 
@@ -291,11 +336,40 @@ class ML(EDA):
                 
         else:
             st.error("Unable to perform Model Evaluation **(hint:Check Load/Preprocessing Function)**")
-        
-   
-class stream(ML):
+            
+
+class deployment(ML):
     
-    def load_data(self):
+    def deploy(self):
+        
+        st.title("Deployment")
+        st.warning("Run Model First then Deploy.......")
+
+        if "chosen_model" in st.session_state and "chosen_model_obj" in st.session_state:
+            st.radio("Selected Model", [st.session_state["chosen_model"]])
+        
+            st.markdown("<p2 style='color:red;'>**------To deploy Click Button Below------**</p2>",unsafe_allow_html=True)
+            
+        if st.button("Deploy"):
+
+                if "deployed" in st.session_state and st.session_state["deployed"]:
+                    st.info("✅ Model is already deployed!")
+                else:
+                    with st.spinner("Checking Model..."):
+                        time.sleep(1)
+                    with st.spinner("Collecting Information..."):
+                        time.sleep(1)
+                    with st.spinner("Deploying..."):
+                        time.sleep(1)
+
+                    dump(st.session_state["chosen_model_obj"], "deploy_Model.joblib")
+                    
+                    st.session_state["deployed"] = True  
+                    st.success("🚀 Model Deployed Successfully!")
+   
+class stream(deployment):
+    
+    def run_load(self):
         
         self.load()
     
@@ -315,6 +389,11 @@ class stream(ML):
         self.load()
         self.ml()
     
+    def run_deploy(self):
+        
+        self.deploy()
+        
+    
         
     def app(self):
         
@@ -329,7 +408,7 @@ class stream(ML):
             "Analysis":self.run_analysis,
             "Insights":self.run_insights,
             "Model training and evaluation":self.run_ML,
-            "Deployment":self.run_clean
+            "Deployment":self.run_deploy
         }
         opt_name=st.sidebar.selectbox("Choose Option",(list(options.keys())))
         
@@ -344,5 +423,4 @@ str.app()
                 
             
         
-
         
